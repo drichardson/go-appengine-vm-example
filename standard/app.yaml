@@ -1,0 +1,10 @@
+runtime: go
+vm: true
+api_version: go1
+
+manual_scaling:
+  instances: 1
+
+handlers:
+- url: /.*
+  script: _go_app
