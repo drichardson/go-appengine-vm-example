@@ -106,7 +106,7 @@ func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http
 		r, err := get(i)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("First sub request %v failed. %v\n", i, err.Error())))
+			w.Write([]byte(fmt.Sprintf("Sub-request %v failed. %v\n", i, err.Error())))
 			return
 		}
 		subResults = append(subResults, r)
