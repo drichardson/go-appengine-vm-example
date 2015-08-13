@@ -7,6 +7,7 @@ import (
 	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -48,13 +49,22 @@ func handleSlowGet(c context.Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	time.Sleep(delay)
-	w.Write([]byte(fmt.Sprintf("delayed %v\n", delayStr)))
+	w.Write([]byte(fmt.Sprintf("delayed %v", delayStr)))
 }
 
 func localURL(path string) string {
 	return "http://localhost:8080/" + path
 }
 
+// handleSerialSubrequests executes two slow running sub-requests
+// serially with a timeout.
+//
+// both sub-requests succeed:
+//	curl localhost:8080/subrequests/serial?timeout=1100ms
+// one fails, one succeeds:
+//	curl localhost:8080/subrequests/serial?timeout=700ms
+// both fail:
+//	curl localhost:8080/subrequests/serial?timeout=400ms
 func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 
 	// Require the caller to specify an overall timeout, like 700ms.
@@ -69,25 +79,101 @@ func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var sub1Result, sub2Result string
-
 	start := time.Now()
 
-	for i := 0; i < 2; i++ {
-		err = httpGet(ctx, localURL("slow/get?delay=500ms"), func(r *http.Response, err error) error {
+	get := func(i int) (string, error) {
+		var result string
+		err := httpGet(ctx, localURL("slow/get?delay=500ms"), func(r *http.Response, err error) error {
 			if err != nil {
-				clog.Debugf(ctx, "handleTimeout: get %v failed.", i, err)
+				clog.Debugf(ctx, "handleTimeout: get %v failed. %v", i, err)
 				return err
 			}
 			b, err := ioutil.ReadAll(r.Body)
 			if err != nil {
-				clog.Debug(ctx, "handleTimeout: get %v ReadAll failed.", i, err)
+				clog.Debugf(ctx, "handleTimeout: get %v ReadAll failed. %v", i, err)
 				return err
 			}
-			clog.Debug(ctx, "handleTimeout: get %v returned with:", i, string(b))
-			sub1Result = string(b)
+			clog.Debugf(ctx, "handleTimeout: get %v returned with: %v", i, string(b))
+			result = string(b)
 			return nil
 		})
+		return result, err
+	}
+
+	subRequestCount := 2
+	subResults := make([]string, 0)
+	for i := 0; i < subRequestCount; i++ {
+		r, err := get(i)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("First sub request %v failed. %v\n", i, err.Error())))
+			return
+		}
+		subResults = append(subResults, r)
+	}
+
+	duration := time.Since(start)
+
+	result := fmt.Sprintf("Duration: %v\nResults:\n%v\n", duration, strings.Join(subResults, "\n"))
+	w.Write([]byte(result))
+}
+
+// handleConhandleConcurrentSubrequests executes two slow running sub-requests
+// concurrently with a timeout. If the timeout expires, the results it has
+// obtained so far are returned.
+//
+// both sub-requests succeed:
+//	curl localhost:8080/subrequests/concurrent?timeout=800ms
+// one fails, one succeeds:
+//	curl localhost:8080/subrequests/concurrent?timeout=700ms
+// both fail:
+//	curl localhost:8080/subrequests/concurrent?timeout=400ms
+func handleConcurrentSubrequests(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	// Require the caller to specify an overall timeout, like 700ms.
+	timeoutStr := r.URL.Query().Get("timeout")
+	timeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Invalid timeout query parameter. Expected something like timeout=700ms\n"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	type subRequestResult struct {
+		err           error
+		requestNumber int
+		result        string
+	}
+
+	out := make(chan subRequestResult)
+
+	start := time.Now()
+
+	subRequestDelays := []time.Duration{500 * time.Millisecond, 750 * time.Millisecond}
+	for i, delay := range subRequestDelays {
+		i := i         // shadow mutable counter for closure
+		delay := delay // shadow for closure
+		go func() {
+			var result string
+			url := localURL(fmt.Sprintf("slow/get?delay=%v", delay))
+			err := httpGet(ctx, url, func(r *http.Response, err error) error {
+				if err != nil {
+					clog.Debugf(ctx, "handleTimeout: get %v failed. %v", i, err)
+					return err
+				}
+				b, err := ioutil.ReadAll(r.Body)
+				if err != nil {
+					clog.Debugf(ctx, "handleTimeout: get %v ReadAll failed. %v", i, err)
+					return err
+				}
+				clog.Debugf(ctx, "handleTimeout: get %v returned with: %v", i, string(b))
+				result = string(b)
+				return nil
+			})
+			out <- subRequestResult{err, i, result}
+		}()
 
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -96,20 +182,21 @@ func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http
 		}
 	}
 
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Second sub request failed. " + err.Error() + "\n"))
-		return
-	}
+	r1 := <-out
+	r2 := <-out
 
 	duration := time.Since(start)
 
-	result := fmt.Sprintf("Duration: %v\nFirst: %vSecond: %v", duration, sub1Result, sub2Result)
-	w.Write([]byte(result))
-}
+	toString := func(s subRequestResult) string {
+		if s.err != nil {
+			return fmt.Sprintf("Request Number: %v, Error: %v", s.requestNumber, s.err.Error())
+		} else {
+			return fmt.Sprintf("Request Number: %v, Result: %v", s.requestNumber, s.result)
+		}
+	}
 
-func handleConcurrentSubrequests(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
+	result := fmt.Sprintf("Duration: %v\n%v\n%v\n", duration, toString(r1), toString(r2))
+	w.Write([]byte(result))
 }
 
 func httpGet(ctx context.Context, url string, f func(*http.Response, error) error) error {
