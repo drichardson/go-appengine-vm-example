@@ -27,17 +27,17 @@ func RegisterHandlers() {
 
 func handlePing(c context.Context, w http.ResponseWriter, r *http.Request) {
 	clog.Debug(c, "handlePing called")
-	w.Write([]byte("ok\n"))
+	w.Write([]byte("ok"))
 }
 
 func handleDatastorePut(c context.Context, w http.ResponseWriter, r *http.Request) {
 	clog.Debug(c, "handleDatastorePut called")
-	w.Write([]byte("ok\n"))
+	w.Write([]byte("ok"))
 }
 
 func handleDatastoreGet(c context.Context, w http.ResponseWriter, r *http.Request) {
 	clog.Debug(c, "handleDatastoreGet called")
-	w.Write([]byte("ok\n"))
+	w.Write([]byte("ok"))
 }
 
 func newStorageService(ctx context.Context) (*storage.Service, error) {
@@ -54,7 +54,7 @@ func handleStoragePut(c context.Context, w http.ResponseWriter, r *http.Request)
 	value := r.URL.Query().Get("value")
 	if bucket == "" || name == "" || value == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Missing bucket, name, or value query parameter.\n"))
+		w.Write([]byte("Missing bucket, name, or value query parameter."))
 		return
 	}
 	service, err := newStorageService(c)
@@ -77,7 +77,7 @@ func handleStorageGet(c context.Context, w http.ResponseWriter, r *http.Request)
 	name := r.URL.Query().Get("name")
 	if bucket == "" || name == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Missing bucket or name query parameter.\n"))
+		w.Write([]byte("Missing bucket or name query parameter."))
 		return
 	}
 	service, err := newStorageService(c)
@@ -104,13 +104,13 @@ func handleSlowGet(c context.Context, w http.ResponseWriter, r *http.Request) {
 	delayStr := r.URL.Query().Get("delay")
 	if delayStr == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("missing delay (e.g., delay=300ms) query parameter\n"))
+		w.Write([]byte("missing delay (e.g., delay=300ms) query parameter"))
 		return
 	}
 	delay, err := time.ParseDuration(delayStr)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("invalid delay duration string. " + err.Error() + "\n"))
+		w.Write([]byte("invalid delay duration string. " + err.Error()))
 		return
 	}
 	time.Sleep(delay)
@@ -137,7 +137,7 @@ func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http
 	timeout, err := time.ParseDuration(timeoutStr)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid timeout query parameter. Expected something like timeout=700ms\n"))
+		w.Write([]byte("Invalid timeout query parameter. Expected something like timeout=700ms"))
 		return
 	}
 
@@ -171,7 +171,7 @@ func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http
 		r, err := get(i)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("Sub-request %v failed. %v\n", i, err.Error())))
+			w.Write([]byte(fmt.Sprintf("Sub-request %v failed. %v", i, err.Error())))
 			return
 		}
 		subResults = append(subResults, r)
@@ -179,7 +179,7 @@ func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http
 
 	duration := time.Since(start)
 
-	result := fmt.Sprintf("Duration: %v\nResults:\n%v\n", duration, strings.Join(subResults, "\n"))
+	result := fmt.Sprintf("Duration: %v\nResults:%v", duration, strings.Join(subResults, "\n"))
 	w.Write([]byte(result))
 }
 
@@ -200,7 +200,7 @@ func handleConcurrentSubrequests(ctx context.Context, w http.ResponseWriter, r *
 	timeout, err := time.ParseDuration(timeoutStr)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid timeout query parameter. Expected something like timeout=700ms\n"))
+		w.Write([]byte("Invalid timeout query parameter. Expected something like timeout=700ms"))
 		return
 	}
 
@@ -243,7 +243,7 @@ func handleConcurrentSubrequests(ctx context.Context, w http.ResponseWriter, r *
 
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("Sub request %v failed. %v\n", i, err.Error())))
+			w.Write([]byte(fmt.Sprintf("Sub request %v failed. %v", i, err.Error())))
 			return
 		}
 	}
@@ -261,7 +261,7 @@ func handleConcurrentSubrequests(ctx context.Context, w http.ResponseWriter, r *
 		}
 	}
 
-	result := fmt.Sprintf("Duration: %v\n%v\n%v\n", duration, toString(r1), toString(r2))
+	result := fmt.Sprintf("Duration: %v\n%v\n%v", duration, toString(r1), toString(r2))
 	w.Write([]byte(result))
 }
 
