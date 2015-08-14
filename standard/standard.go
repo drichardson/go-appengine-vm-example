@@ -1,6 +1,5 @@
 // This example only works on Managed VMs. Don't use goapp (the
 // classic environment for Go App Engine) to build.
-// +build appenginevm
 
 package main
 
