@@ -7,9 +7,11 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2/google"
 	storage "google.golang.org/api/storage/v1"
+	"google.golang.org/appengine/datastore"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,14 +39,71 @@ func handlePing(c context.Context, w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ping!"))
 }
 
+const ExampleKind = "AppEngineManagedVMExample"
+
+type ExampleData struct {
+	StringValue string
+	IntValue    int
+}
+
 func handleDatastorePut(c context.Context, w http.ResponseWriter, r *http.Request) {
-	clog.Debug(c, "handleDatastorePut called")
+	k := r.URL.Query().Get("key")
+	s := r.URL.Query().Get("stringvalue")
+	iStr := r.URL.Query().Get("intvalue")
+	if k == "" || s == "" || iStr == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Missing required query parameter key, stringvalue, or intvalue"))
+		return
+	}
+	i, err := strconv.ParseInt(iStr, 10, 64)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Couldn't convert intvalue to integer. " + err.Error()))
+		return
+	}
+	key := datastore.NewKey(c, ExampleKind, k, 0, nil)
+	if key.Incomplete() {
+		// This shouldn't happen because we already made sure k != "", but
+		// if it does we want to know because we won't be able to retreive
+		// the results with the same key.
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Unexpected incomplete key"))
+		return
+	}
+	_, err = datastore.Put(c, key, &ExampleData{StringValue: s, IntValue: int(i)})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Failed to put value to datastore. " + err.Error()))
+		return
+	}
 	w.Write([]byte("ok"))
 }
 
 func handleDatastoreGet(c context.Context, w http.ResponseWriter, r *http.Request) {
-	clog.Debug(c, "handleDatastoreGet called")
-	w.Write([]byte("ok"))
+	k := r.URL.Query().Get("key")
+	if k == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Missing required query parameter key"))
+		return
+	}
+	key := datastore.NewKey(c, ExampleKind, k, 0, nil)
+	if key.Incomplete() {
+		// This shouldn't happen because we already made sure k != "", but
+		// if it does we want to know because we won't be able to retreive
+		// the results with the same key.
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Unexpected incomplete key"))
+		return
+	}
+	e := new(ExampleData)
+	err := datastore.Get(c, key, &e)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Datastore get failed. " + err.Error()))
+		return
+	}
+
+	w.Write([]byte(fmt.Sprintf("StringValue: %v, IntValue: %v", e.StringValue, e.IntValue)))
 }
 
 func handleStoragePut(c context.Context, w http.ResponseWriter, r *http.Request) {
