@@ -130,6 +130,7 @@ func handleSerialSubrequests(ctx context.Context, w http.ResponseWriter, r *http
 //	curl localhost:8080/subrequests/concurrent?timeout=400ms
 func handleConcurrentSubrequests(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	// Require the caller to specify an overall timeout, like 700ms.
+	clog.Debug(ctx, "In handleConcurrentSubrequests test log message")
 	timeoutStr := r.URL.Query().Get("timeout")
 	timeout, err := time.ParseDuration(timeoutStr)
 	if err != nil {
