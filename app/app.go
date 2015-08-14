@@ -5,6 +5,9 @@ import (
 	clog "github.com/drichardson/go-appengine-vm-example/contextlog"
 	"github.com/drichardson/go-appengine-vm-example/handler"
 	"golang.org/x/net/context"
+	"golang.org/x/oauth2/google"
+	storage "google.golang.org/api/storage/v1"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -15,6 +18,8 @@ func RegisterHandlers() {
 	handler.Handle("/ping", handlePing)
 	handler.Handle("/datastore/put", handleDatastorePut)
 	handler.Handle("/datastore/get", handleDatastoreGet)
+	handler.Handle("/storage/put", handleStoragePut)
+	handler.Handle("/storage/get", handleStorageGet)
 	handler.Handle("/slow/get", handleSlowGet)
 	handler.Handle("/subrequests/serial", handleSerialSubrequests)
 	handler.Handle("/subrequests/concurrent", handleConcurrentSubrequests)
@@ -33,6 +38,66 @@ func handleDatastorePut(c context.Context, w http.ResponseWriter, r *http.Reques
 func handleDatastoreGet(c context.Context, w http.ResponseWriter, r *http.Request) {
 	clog.Debug(c, "handleDatastoreGet called")
 	w.Write([]byte("ok\n"))
+}
+
+func newStorageService(ctx context.Context) (*storage.Service, error) {
+	client, err := google.DefaultClient(ctx, storage.DevstorageFullControlScope)
+	if err != nil {
+		return nil, err
+	}
+	return storage.New(client)
+}
+
+func handleStoragePut(c context.Context, w http.ResponseWriter, r *http.Request) {
+	bucket := r.URL.Query().Get("bucket")
+	name := r.URL.Query().Get("name")
+	value := r.URL.Query().Get("value")
+	if bucket == "" || name == "" || value == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Missing bucket, name, or value query parameter.\n"))
+		return
+	}
+	service, err := newStorageService(c)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Failed to get storage service. " + err.Error()))
+		return
+	}
+	obj, err := service.Objects.Insert(bucket, &storage.Object{Name: name}).Media(strings.NewReader(value)).Do()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Failed to insert object. " + err.Error()))
+		return
+	}
+	w.Write([]byte(fmt.Sprintf("put succeeded: %v", obj)))
+}
+
+func handleStorageGet(c context.Context, w http.ResponseWriter, r *http.Request) {
+	bucket := r.URL.Query().Get("bucket")
+	name := r.URL.Query().Get("name")
+	if bucket == "" || name == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Missing bucket or name query parameter.\n"))
+		return
+	}
+	service, err := newStorageService(c)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Failed to get storage service. " + err.Error()))
+		return
+	}
+	res, err := service.Objects.Get(bucket, name).Download()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Failed to get object. " + err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", res.Header.Get("Content-Type"))
+	_, err = io.Copy(w, res.Body)
+	if err != nil {
+		// to late to change status code now
+		clog.Errorf(c, "io.Copy failed to copy storage get to response. %v", err)
+	}
 }
 
 func handleSlowGet(c context.Context, w http.ResponseWriter, r *http.Request) {
