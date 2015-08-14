@@ -15,19 +15,26 @@ import (
 )
 
 func RegisterHandlers() {
+	// Simple Request/Response with context.Context
 	handler.Handle("/ping", handlePing)
+
+	// App Engine Datastore
 	handler.Handle("/datastore/put", handleDatastorePut)
 	handler.Handle("/datastore/get", handleDatastoreGet)
+
+	// Google Cloud Storage
 	handler.Handle("/storage/put", handleStoragePut)
 	handler.Handle("/storage/get", handleStorageGet)
+
+	// Using context.Context to control top level request timeouts
+	// while invoking multiple sub-requests.
 	handler.Handle("/slow/get", handleSlowGet)
 	handler.Handle("/subrequests/serial", handleSerialSubrequests)
 	handler.Handle("/subrequests/concurrent", handleConcurrentSubrequests)
 }
 
 func handlePing(c context.Context, w http.ResponseWriter, r *http.Request) {
-	clog.Debug(c, "handlePing called")
-	w.Write([]byte("ok"))
+	w.Write([]byte("ping!"))
 }
 
 func handleDatastorePut(c context.Context, w http.ResponseWriter, r *http.Request) {
@@ -40,14 +47,6 @@ func handleDatastoreGet(c context.Context, w http.ResponseWriter, r *http.Reques
 	w.Write([]byte("ok"))
 }
 
-func newStorageService(ctx context.Context) (*storage.Service, error) {
-	client, err := google.DefaultClient(ctx, storage.DevstorageFullControlScope)
-	if err != nil {
-		return nil, err
-	}
-	return storage.New(client)
-}
-
 func handleStoragePut(c context.Context, w http.ResponseWriter, r *http.Request) {
 	bucket := r.URL.Query().Get("bucket")
 	name := r.URL.Query().Get("name")
@@ -57,7 +56,13 @@ func handleStoragePut(c context.Context, w http.ResponseWriter, r *http.Request)
 		w.Write([]byte("Missing bucket, name, or value query parameter."))
 		return
 	}
-	service, err := newStorageService(c)
+	client, err := google.DefaultClient(c, storage.DevstorageReadWriteScope)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Failed to get default google client. " + err.Error()))
+		return
+	}
+	service, err := storage.New(client)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Failed to get storage service. " + err.Error()))
@@ -80,7 +85,13 @@ func handleStorageGet(c context.Context, w http.ResponseWriter, r *http.Request)
 		w.Write([]byte("Missing bucket or name query parameter."))
 		return
 	}
-	service, err := newStorageService(c)
+	client, err := google.DefaultClient(c, storage.DevstorageReadOnlyScope)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Failed to get default google client. " + err.Error()))
+		return
+	}
+	service, err := storage.New(client)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Failed to get storage service. " + err.Error()))
