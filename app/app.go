@@ -96,7 +96,7 @@ func handleDatastoreGet(c context.Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 	e := new(ExampleData)
-	err := datastore.Get(c, key, &e)
+	err := datastore.Get(c, key, e)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Datastore get failed. " + err.Error()))
